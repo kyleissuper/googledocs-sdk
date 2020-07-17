@@ -6,7 +6,7 @@
         name: "client_id",
         hint: "https://console.developers.google.com/apis/credentials
               Redirect URI is https://www.workato.com/oauth/callback",
-        optional: false
+              optional: false
       },
       {
         name: "client_secret",
@@ -23,12 +23,12 @@
           "https://www.googleapis.com/auth/drive"
         ].join(" ")
         params = {
-            client_id: connection["client_id"],
-            response_type: "code",
-            scope: scopes,
-            access_type: "offline",
-            include_granted_scopes: "true",
-            prompt: "consent" 
+          client_id: connection["client_id"],
+          response_type: "code",
+          scope: scopes,
+          access_type: "offline",
+          include_granted_scopes: "true",
+          prompt: "consent" 
         }.to_param
 
         "https://accounts.google.com/o/oauth2/auth?" + params
@@ -41,7 +41,7 @@
             grant_type: "authorization_code",
             code: auth_code,
             redirect_uri: "https://www.workato.com/oauth/callback").
-          request_format_www_form_urlencoded
+            request_format_www_form_urlencoded
         [response, nil, nil]
       end,
       refresh: lambda do |connection, refresh_token|
@@ -51,7 +51,7 @@
             client_secret: connection["client_secret"],
             grant_type: "refresh_token",
             refresh_token: refresh_token).
-          request_format_www_form_urlencoded
+            request_format_www_form_urlencoded
       end,
       apply: lambda do |_connection, access_token|
         headers("Authorization": "Bearer #{access_token}")
@@ -82,8 +82,8 @@
         object_definitions["document"]
       end
     },
-    update_doc: {
-      title: "Update Doc",
+    search_and_replace_text: {
+      title: "Search and Replace Text",
       input_fields: lambda do |object_definitions|
         [
           {
@@ -105,6 +105,66 @@
         }
         response = post("/v1/documents/#{input["document_id"]}:batchUpdate").
           payload(input)
+          response["doc_url"] = "https://docs.google.com/document/d/#{response["documentId"]}/edit?usp=drivesdk"
+          response
+      end,
+      output_fields: lambda do |object_definitions|
+        object_definitions["update_response"]
+      end
+    },
+    search_and_replace_image: {
+      title: "Search and Replace Image",
+      input_fields: lambda do
+        [
+          {
+            name: "document_id",
+            optional: false
+          },
+          {
+            name: "requests",
+            optional: false,
+            type: :array,
+            of: :object,
+            properties: [
+              {
+                name: "search_image_by_title",
+                optional: false,
+                hint: "Tag your image with an Alt title: https://support.google.com/docs/answer/6199477?hl=en#:~:text=Add%20or%20edit%20alt%20text,image%2C%20drawing%2C%20or%20graphic.&text=Alt%20text.,Click%20Ok."
+              },
+              {
+                name: "image_url",
+                optional: false,
+                hint: "The URL of the image you want to add"
+              }
+            ]
+          }
+        ]
+      end,
+      execute: lambda do |connection, input|
+        targetRevisionId = get("/v1/documents/#{input["document_id"]}")["revisionId"]
+        google_requests = []
+        images = get("/v1/documents/#{input["document_id"]}?fields=inlineObjects")["inlineObjects"]
+        images.each do |image_id, image_hash|
+          input["requests"].each do |request|
+            title = images[image_id]["inlineObjectProperties"]["embeddedObject"]["title"]
+            if title.present? && title == request["search_image_by_title"]
+              google_requests << {
+                "replaceImage": {
+                  "imageObjectId": image_id,
+                  "uri": request["image_url"],
+                  "imageReplaceMethod": "CENTER_CROP"
+                }
+              }
+            end
+          end
+        end
+        response = post("/v1/documents/#{input["document_id"]}:batchUpdate").
+          payload({
+          "requests": google_requests,
+          "writeControl": {
+            "targetRevisionId": targetRevisionId
+          }
+        })
         response["doc_url"] = "https://docs.google.com/document/d/#{response["documentId"]}/edit?usp=drivesdk"
         response
       end,
@@ -168,850 +228,828 @@
     },
     document: {
       fields: lambda do
-				[
-				  {
-				    "control_type": "text",
-				    "label": "Title",
-				    "type": "string",
-				    "name": "title"
-				  },
-				  {
-				    "properties": [
-				      {
-				        "name": "content",
-				        "type": "array",
-				        "of": "object",
-				        "label": "Content",
-				        "properties": [
-				          {
-				            "control_type": "number",
-				            "label": "End index",
-				            "parse_output": "float_conversion",
-				            "type": "number",
-				            "name": "endIndex"
-				          },
-				          {
-				            "properties": [
-				              {
-				                "properties": [
-				                  {
-				                    "control_type": "text",
-				                    "label": "Column separator style",
-				                    "type": "string",
-				                    "name": "columnSeparatorStyle"
-				                  },
-				                  {
-				                    "control_type": "text",
-				                    "label": "Content direction",
-				                    "type": "string",
-				                    "name": "contentDirection"
-				                  }
-				                ],
-				                "label": "Section style",
-				                "type": "object",
-				                "name": "sectionStyle"
-				              }
-				            ],
-				            "label": "Section break",
-				            "type": "object",
-				            "name": "sectionBreak"
-				          }
-				        ]
-				      }
-				    ],
-				    "label": "Body",
-				    "type": "object",
-				    "name": "body"
-				  },
-				  {
-				    "properties": [
-				      {
-				        "properties": [
-				          {
-				            "properties": [],
-				            "label": "Color",
-				            "type": "object",
-				            "name": "color"
-				          }
-				        ],
-				        "label": "Background",
-				        "type": "object",
-				        "name": "background"
-				      },
-				      {
-				        "control_type": "number",
-				        "label": "Page number start",
-				        "parse_output": "float_conversion",
-				        "type": "number",
-				        "name": "pageNumberStart"
-				      },
-				      {
-				        "properties": [
-				          {
-				            "control_type": "number",
-				            "label": "Magnitude",
-				            "parse_output": "float_conversion",
-				            "type": "number",
-				            "name": "magnitude"
-				          },
-				          {
-				            "control_type": "text",
-				            "label": "Unit",
-				            "type": "string",
-				            "name": "unit"
-				          }
-				        ],
-				        "label": "Margin top",
-				        "type": "object",
-				        "name": "marginTop"
-				      },
-				      {
-				        "properties": [
-				          {
-				            "control_type": "number",
-				            "label": "Magnitude",
-				            "parse_output": "float_conversion",
-				            "type": "number",
-				            "name": "magnitude"
-				          },
-				          {
-				            "control_type": "text",
-				            "label": "Unit",
-				            "type": "string",
-				            "name": "unit"
-				          }
-				        ],
-				        "label": "Margin bottom",
-				        "type": "object",
-				        "name": "marginBottom"
-				      },
-				      {
-				        "properties": [
-				          {
-				            "control_type": "number",
-				            "label": "Magnitude",
-				            "parse_output": "float_conversion",
-				            "type": "number",
-				            "name": "magnitude"
-				          },
-				          {
-				            "control_type": "text",
-				            "label": "Unit",
-				            "type": "string",
-				            "name": "unit"
-				          }
-				        ],
-				        "label": "Margin right",
-				        "type": "object",
-				        "name": "marginRight"
-				      },
-				      {
-				        "properties": [
-				          {
-				            "control_type": "number",
-				            "label": "Magnitude",
-				            "parse_output": "float_conversion",
-				            "type": "number",
-				            "name": "magnitude"
-				          },
-				          {
-				            "control_type": "text",
-				            "label": "Unit",
-				            "type": "string",
-				            "name": "unit"
-				          }
-				        ],
-				        "label": "Margin left",
-				        "type": "object",
-				        "name": "marginLeft"
-				      },
-				      {
-				        "properties": [
-				          {
-				            "properties": [
-				              {
-				                "control_type": "number",
-				                "label": "Magnitude",
-				                "parse_output": "float_conversion",
-				                "type": "number",
-				                "name": "magnitude"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Unit",
-				                "type": "string",
-				                "name": "unit"
-				              }
-				            ],
-				            "label": "Height",
-				            "type": "object",
-				            "name": "height"
-				          },
-				          {
-				            "properties": [
-				              {
-				                "control_type": "number",
-				                "label": "Magnitude",
-				                "parse_output": "float_conversion",
-				                "type": "number",
-				                "name": "magnitude"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Unit",
-				                "type": "string",
-				                "name": "unit"
-				              }
-				            ],
-				            "label": "Width",
-				            "type": "object",
-				            "name": "width"
-				          }
-				        ],
-				        "label": "Page size",
-				        "type": "object",
-				        "name": "pageSize"
-				      }
-				    ],
-				    "label": "Document style",
-				    "type": "object",
-				    "name": "documentStyle"
-				  },
-				  {
-				    "properties": [
-				      {
-				        "name": "styles",
-				        "type": "array",
-				        "of": "object",
-				        "label": "Styles",
-				        "properties": [
-				          {
-				            "control_type": "text",
-				            "label": "Named style type",
-				            "type": "string",
-				            "name": "namedStyleType"
-				          },
-				          {
-				            "properties": [
-				              {
-				                "control_type": "text",
-				                "label": "Bold",
-				                "render_input": {},
-				                "parse_output": {},
-				                "toggle_hint": "Select from option list",
-				                "toggle_field": {
-				                  "label": "Bold",
-				                  "control_type": "text",
-				                  "toggle_hint": "Use custom value",
-				                  "type": "boolean",
-				                  "name": "bold"
-				                },
-				                "type": "boolean",
-				                "name": "bold"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Italic",
-				                "render_input": {},
-				                "parse_output": {},
-				                "toggle_hint": "Select from option list",
-				                "toggle_field": {
-				                  "label": "Italic",
-				                  "control_type": "text",
-				                  "toggle_hint": "Use custom value",
-				                  "type": "boolean",
-				                  "name": "italic"
-				                },
-				                "type": "boolean",
-				                "name": "italic"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Underline",
-				                "render_input": {},
-				                "parse_output": {},
-				                "toggle_hint": "Select from option list",
-				                "toggle_field": {
-				                  "label": "Underline",
-				                  "control_type": "text",
-				                  "toggle_hint": "Use custom value",
-				                  "type": "boolean",
-				                  "name": "underline"
-				                },
-				                "type": "boolean",
-				                "name": "underline"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Strikethrough",
-				                "render_input": {},
-				                "parse_output": {},
-				                "toggle_hint": "Select from option list",
-				                "toggle_field": {
-				                  "label": "Strikethrough",
-				                  "control_type": "text",
-				                  "toggle_hint": "Use custom value",
-				                  "type": "boolean",
-				                  "name": "strikethrough"
-				                },
-				                "type": "boolean",
-				                "name": "strikethrough"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Small caps",
-				                "render_input": {},
-				                "parse_output": {},
-				                "toggle_hint": "Select from option list",
-				                "toggle_field": {
-				                  "label": "Small caps",
-				                  "control_type": "text",
-				                  "toggle_hint": "Use custom value",
-				                  "type": "boolean",
-				                  "name": "smallCaps"
-				                },
-				                "type": "boolean",
-				                "name": "smallCaps"
-				              },
-				              {
-				                "properties": [],
-				                "label": "Background color",
-				                "type": "object",
-				                "name": "backgroundColor"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "properties": [
-				                      {
-				                        "properties": [],
-				                        "label": "Rgb color",
-				                        "type": "object",
-				                        "name": "rgbColor"
-				                      }
-				                    ],
-				                    "label": "Color",
-				                    "type": "object",
-				                    "name": "color"
-				                  }
-				                ],
-				                "label": "Foreground color",
-				                "type": "object",
-				                "name": "foregroundColor"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "control_type": "number",
-				                    "label": "Magnitude",
-				                    "parse_output": "float_conversion",
-				                    "type": "number",
-				                    "name": "magnitude"
-				                  },
-				                  {
-				                    "control_type": "text",
-				                    "label": "Unit",
-				                    "type": "string",
-				                    "name": "unit"
-				                  }
-				                ],
-				                "label": "Font size",
-				                "type": "object",
-				                "name": "fontSize"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "control_type": "text",
-				                    "label": "Font family",
-				                    "type": "string",
-				                    "name": "fontFamily"
-				                  },
-				                  {
-				                    "control_type": "number",
-				                    "label": "Weight",
-				                    "parse_output": "float_conversion",
-				                    "type": "number",
-				                    "name": "weight"
-				                  }
-				                ],
-				                "label": "Weighted font family",
-				                "type": "object",
-				                "name": "weightedFontFamily"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Baseline offset",
-				                "type": "string",
-				                "name": "baselineOffset"
-				              }
-				            ],
-				            "label": "Text style",
-				            "type": "object",
-				            "name": "textStyle"
-				          },
-				          {
-				            "properties": [
-				              {
-				                "control_type": "text",
-				                "label": "Named style type",
-				                "type": "string",
-				                "name": "namedStyleType"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Alignment",
-				                "type": "string",
-				                "name": "alignment"
-				              },
-				              {
-				                "control_type": "number",
-				                "label": "Line spacing",
-				                "parse_output": "float_conversion",
-				                "type": "number",
-				                "name": "lineSpacing"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Direction",
-				                "type": "string",
-				                "name": "direction"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Spacing mode",
-				                "type": "string",
-				                "name": "spacingMode"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "control_type": "text",
-				                    "label": "Unit",
-				                    "type": "string",
-				                    "name": "unit"
-				                  }
-				                ],
-				                "label": "Space above",
-				                "type": "object",
-				                "name": "spaceAbove"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "control_type": "text",
-				                    "label": "Unit",
-				                    "type": "string",
-				                    "name": "unit"
-				                  }
-				                ],
-				                "label": "Space below",
-				                "type": "object",
-				                "name": "spaceBelow"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "properties": [],
-				                    "label": "Color",
-				                    "type": "object",
-				                    "name": "color"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Width",
-				                    "type": "object",
-				                    "name": "width"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Padding",
-				                    "type": "object",
-				                    "name": "padding"
-				                  },
-				                  {
-				                    "control_type": "text",
-				                    "label": "Dash style",
-				                    "type": "string",
-				                    "name": "dashStyle"
-				                  }
-				                ],
-				                "label": "Border between",
-				                "type": "object",
-				                "name": "borderBetween"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "properties": [],
-				                    "label": "Color",
-				                    "type": "object",
-				                    "name": "color"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Width",
-				                    "type": "object",
-				                    "name": "width"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Padding",
-				                    "type": "object",
-				                    "name": "padding"
-				                  },
-				                  {
-				                    "control_type": "text",
-				                    "label": "Dash style",
-				                    "type": "string",
-				                    "name": "dashStyle"
-				                  }
-				                ],
-				                "label": "Border top",
-				                "type": "object",
-				                "name": "borderTop"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "properties": [],
-				                    "label": "Color",
-				                    "type": "object",
-				                    "name": "color"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Width",
-				                    "type": "object",
-				                    "name": "width"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Padding",
-				                    "type": "object",
-				                    "name": "padding"
-				                  },
-				                  {
-				                    "control_type": "text",
-				                    "label": "Dash style",
-				                    "type": "string",
-				                    "name": "dashStyle"
-				                  }
-				                ],
-				                "label": "Border bottom",
-				                "type": "object",
-				                "name": "borderBottom"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "properties": [],
-				                    "label": "Color",
-				                    "type": "object",
-				                    "name": "color"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Width",
-				                    "type": "object",
-				                    "name": "width"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Padding",
-				                    "type": "object",
-				                    "name": "padding"
-				                  },
-				                  {
-				                    "control_type": "text",
-				                    "label": "Dash style",
-				                    "type": "string",
-				                    "name": "dashStyle"
-				                  }
-				                ],
-				                "label": "Border left",
-				                "type": "object",
-				                "name": "borderLeft"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "properties": [],
-				                    "label": "Color",
-				                    "type": "object",
-				                    "name": "color"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Width",
-				                    "type": "object",
-				                    "name": "width"
-				                  },
-				                  {
-				                    "properties": [
-				                      {
-				                        "control_type": "text",
-				                        "label": "Unit",
-				                        "type": "string",
-				                        "name": "unit"
-				                      }
-				                    ],
-				                    "label": "Padding",
-				                    "type": "object",
-				                    "name": "padding"
-				                  },
-				                  {
-				                    "control_type": "text",
-				                    "label": "Dash style",
-				                    "type": "string",
-				                    "name": "dashStyle"
-				                  }
-				                ],
-				                "label": "Border right",
-				                "type": "object",
-				                "name": "borderRight"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "control_type": "text",
-				                    "label": "Unit",
-				                    "type": "string",
-				                    "name": "unit"
-				                  }
-				                ],
-				                "label": "Indent first line",
-				                "type": "object",
-				                "name": "indentFirstLine"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "control_type": "text",
-				                    "label": "Unit",
-				                    "type": "string",
-				                    "name": "unit"
-				                  }
-				                ],
-				                "label": "Indent start",
-				                "type": "object",
-				                "name": "indentStart"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "control_type": "text",
-				                    "label": "Unit",
-				                    "type": "string",
-				                    "name": "unit"
-				                  }
-				                ],
-				                "label": "Indent end",
-				                "type": "object",
-				                "name": "indentEnd"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Keep lines together",
-				                "render_input": {},
-				                "parse_output": {},
-				                "toggle_hint": "Select from option list",
-				                "toggle_field": {
-				                  "label": "Keep lines together",
-				                  "control_type": "text",
-				                  "toggle_hint": "Use custom value",
-				                  "type": "boolean",
-				                  "name": "keepLinesTogether"
-				                },
-				                "type": "boolean",
-				                "name": "keepLinesTogether"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Keep with next",
-				                "render_input": {},
-				                "parse_output": {},
-				                "toggle_hint": "Select from option list",
-				                "toggle_field": {
-				                  "label": "Keep with next",
-				                  "control_type": "text",
-				                  "toggle_hint": "Use custom value",
-				                  "type": "boolean",
-				                  "name": "keepWithNext"
-				                },
-				                "type": "boolean",
-				                "name": "keepWithNext"
-				              },
-				              {
-				                "control_type": "text",
-				                "label": "Avoid widow and orphan",
-				                "render_input": {},
-				                "parse_output": {},
-				                "toggle_hint": "Select from option list",
-				                "toggle_field": {
-				                  "label": "Avoid widow and orphan",
-				                  "control_type": "text",
-				                  "toggle_hint": "Use custom value",
-				                  "type": "boolean",
-				                  "name": "avoidWidowAndOrphan"
-				                },
-				                "type": "boolean",
-				                "name": "avoidWidowAndOrphan"
-				              },
-				              {
-				                "properties": [
-				                  {
-				                    "properties": [],
-				                    "label": "Background color",
-				                    "type": "object",
-				                    "name": "backgroundColor"
-				                  }
-				                ],
-				                "label": "Shading",
-				                "type": "object",
-				                "name": "shading"
-				              }
-				            ],
-				            "label": "Paragraph style",
-				            "type": "object",
-				            "name": "paragraphStyle"
-				          }
-				        ]
-				      }
-				    ],
-				    "label": "Named styles",
-				    "type": "object",
-				    "name": "namedStyles"
-				  },
-				  {
-				    "control_type": "text",
-				    "label": "Revision ID",
-				    "type": "string",
-				    "name": "revisionId"
-				  },
-				  {
-				    "control_type": "text",
-				    "label": "Suggestions view mode",
-				    "type": "string",
-				    "name": "suggestionsViewMode"
-				  },
-				  {
-				    "control_type": "text",
-				    "label": "Document ID",
-				    "type": "string",
-				    "name": "documentId"
-				  }
-				]
+        [
+          {
+            "control_type": "text",
+            "label": "Title",
+            "type": "string",
+            "name": "title"
+          },
+          {
+            "properties": [
+              {
+                "name": "content",
+                "type": "array",
+                "of": "object",
+                "label": "Content",
+                "properties": [
+                  {
+                    "control_type": "number",
+                    "label": "End index",
+                    "parse_output": "float_conversion",
+                    "type": "number",
+                    "name": "endIndex"
+                  },
+                  {
+                    "properties": [
+                      {
+                        "properties": [
+                          {
+                            "control_type": "text",
+                            "label": "Column separator style",
+                            "type": "string",
+                            "name": "columnSeparatorStyle"
+                          },
+                          {
+                            "control_type": "text",
+                            "label": "Content direction",
+                            "type": "string",
+                            "name": "contentDirection"
+                          }
+                        ],
+                        "label": "Section style",
+                        "type": "object",
+                        "name": "sectionStyle"
+                      }
+                    ],
+                    "label": "Section break",
+                    "type": "object",
+                    "name": "sectionBreak"
+                  }
+                ]
+              }
+            ],
+            "label": "Body",
+            "type": "object",
+            "name": "body"
+          },
+          {
+            "properties": [
+              {
+                "properties": [
+                  {
+                    "properties": [],
+                    "label": "Color",
+                    "type": "object",
+                    "name": "color"
+                  }
+                ],
+                "label": "Background",
+                "type": "object",
+                "name": "background"
+              },
+              {
+                "control_type": "number",
+                "label": "Page number start",
+                "parse_output": "float_conversion",
+                "type": "number",
+                "name": "pageNumberStart"
+              },
+              {
+                "properties": [
+                  {
+                    "control_type": "number",
+                    "label": "Magnitude",
+                    "parse_output": "float_conversion",
+                    "type": "number",
+                    "name": "magnitude"
+                  },
+                  {
+                    "control_type": "text",
+                    "label": "Unit",
+                    "type": "string",
+                    "name": "unit"
+                  }
+                ],
+                "label": "Margin top",
+                "type": "object",
+                "name": "marginTop"
+              },
+              {
+                "properties": [
+                  {
+                    "control_type": "number",
+                    "label": "Magnitude",
+                    "parse_output": "float_conversion",
+                    "type": "number",
+                    "name": "magnitude"
+                  },
+                  {
+                    "control_type": "text",
+                    "label": "Unit",
+                    "type": "string",
+                    "name": "unit"
+                  }
+                ],
+                "label": "Margin bottom",
+                "type": "object",
+                "name": "marginBottom"
+              },
+              {
+                "properties": [
+                  {
+                    "control_type": "number",
+                    "label": "Magnitude",
+                    "parse_output": "float_conversion",
+                    "type": "number",
+                    "name": "magnitude"
+                  },
+                  {
+                    "control_type": "text",
+                    "label": "Unit",
+                    "type": "string",
+                    "name": "unit"
+                  }
+                ],
+                "label": "Margin right",
+                "type": "object",
+                "name": "marginRight"
+              },
+              {
+                "properties": [
+                  {
+                    "control_type": "number",
+                    "label": "Magnitude",
+                    "parse_output": "float_conversion",
+                    "type": "number",
+                    "name": "magnitude"
+                  },
+                  {
+                    "control_type": "text",
+                    "label": "Unit",
+                    "type": "string",
+                    "name": "unit"
+                  }
+                ],
+                "label": "Margin left",
+                "type": "object",
+                "name": "marginLeft"
+              },
+              {
+                "properties": [
+                  {
+                    "properties": [
+                      {
+                        "control_type": "number",
+                        "label": "Magnitude",
+                        "parse_output": "float_conversion",
+                        "type": "number",
+                        "name": "magnitude"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Unit",
+                        "type": "string",
+                        "name": "unit"
+                      }
+                    ],
+                    "label": "Height",
+                    "type": "object",
+                    "name": "height"
+                  },
+                  {
+                    "properties": [
+                      {
+                        "control_type": "number",
+                        "label": "Magnitude",
+                        "parse_output": "float_conversion",
+                        "type": "number",
+                        "name": "magnitude"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Unit",
+                        "type": "string",
+                        "name": "unit"
+                      }
+                    ],
+                    "label": "Width",
+                    "type": "object",
+                    "name": "width"
+                  }
+                ],
+                "label": "Page size",
+                "type": "object",
+                "name": "pageSize"
+              }
+            ],
+            "label": "Document style",
+            "type": "object",
+            "name": "documentStyle"
+          },
+          {
+            "properties": [
+              {
+                "name": "styles",
+                "type": "array",
+                "of": "object",
+                "label": "Styles",
+                "properties": [
+                  {
+                    "control_type": "text",
+                    "label": "Named style type",
+                    "type": "string",
+                    "name": "namedStyleType"
+                  },
+                  {
+                    "properties": [
+                      {
+                        "control_type": "text",
+                        "label": "Bold",
+                        "render_input": {},
+                        "parse_output": {},
+                        "toggle_hint": "Select from option list",
+                        "toggle_field": {
+                          "label": "Bold",
+                          "control_type": "text",
+                          "toggle_hint": "Use custom value",
+                          "type": "boolean",
+                          "name": "bold"
+                        },
+                        "type": "boolean",
+                        "name": "bold"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Italic",
+                        "render_input": {},
+                        "parse_output": {},
+                        "toggle_hint": "Select from option list",
+                        "toggle_field": {
+                          "label": "Italic",
+                          "control_type": "text",
+                          "toggle_hint": "Use custom value",
+                          "type": "boolean",
+                          "name": "italic"
+                        },
+                        "type": "boolean",
+                        "name": "italic"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Underline",
+                        "render_input": {},
+                        "parse_output": {},
+                        "toggle_hint": "Select from option list",
+                        "toggle_field": {
+                          "label": "Underline",
+                          "control_type": "text",
+                          "toggle_hint": "Use custom value",
+                          "type": "boolean",
+                          "name": "underline"
+                        },
+                        "type": "boolean",
+                        "name": "underline"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Strikethrough",
+                        "render_input": {},
+                        "parse_output": {},
+                        "toggle_hint": "Select from option list",
+                        "toggle_field": {
+                          "label": "Strikethrough",
+                          "control_type": "text",
+                          "toggle_hint": "Use custom value",
+                          "type": "boolean",
+                          "name": "strikethrough"
+                        },
+                        "type": "boolean",
+                        "name": "strikethrough"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Small caps",
+                        "render_input": {},
+                        "parse_output": {},
+                        "toggle_hint": "Select from option list",
+                        "toggle_field": {
+                          "label": "Small caps",
+                          "control_type": "text",
+                          "toggle_hint": "Use custom value",
+                          "type": "boolean",
+                          "name": "smallCaps"
+                        },
+                        "type": "boolean",
+                        "name": "smallCaps"
+                      },
+                      {
+                        "properties": [],
+                        "label": "Background color",
+                        "type": "object",
+                        "name": "backgroundColor"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "properties": [
+                              {
+                                "properties": [],
+                                "label": "Rgb color",
+                                "type": "object",
+                                "name": "rgbColor"
+                              }
+                            ],
+                            "label": "Color",
+                            "type": "object",
+                            "name": "color"
+                          }
+                        ],
+                        "label": "Foreground color",
+                        "type": "object",
+                        "name": "foregroundColor"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "control_type": "number",
+                            "label": "Magnitude",
+                            "parse_output": "float_conversion",
+                            "type": "number",
+                            "name": "magnitude"
+                          },
+                          {
+                            "control_type": "text",
+                            "label": "Unit",
+                            "type": "string",
+                            "name": "unit"
+                          }
+                        ],
+                        "label": "Font size",
+                        "type": "object",
+                        "name": "fontSize"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "control_type": "text",
+                            "label": "Font family",
+                            "type": "string",
+                            "name": "fontFamily"
+                          },
+                          {
+                            "control_type": "number",
+                            "label": "Weight",
+                            "parse_output": "float_conversion",
+                            "type": "number",
+                            "name": "weight"
+                          }
+                        ],
+                        "label": "Weighted font family",
+                        "type": "object",
+                        "name": "weightedFontFamily"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Baseline offset",
+                        "type": "string",
+                        "name": "baselineOffset"
+                      }
+                    ],
+                    "label": "Text style",
+                    "type": "object",
+                    "name": "textStyle"
+                  },
+                  {
+                    "properties": [
+                      {
+                        "control_type": "text",
+                        "label": "Named style type",
+                        "type": "string",
+                        "name": "namedStyleType"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Alignment",
+                        "type": "string",
+                        "name": "alignment"
+                      },
+                      {
+                        "control_type": "number",
+                        "label": "Line spacing",
+                        "parse_output": "float_conversion",
+                        "type": "number",
+                        "name": "lineSpacing"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Direction",
+                        "type": "string",
+                        "name": "direction"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Spacing mode",
+                        "type": "string",
+                        "name": "spacingMode"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "control_type": "text",
+                            "label": "Unit",
+                            "type": "string",
+                            "name": "unit"
+                          }
+                        ],
+                        "label": "Space above",
+                        "type": "object",
+                        "name": "spaceAbove"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "control_type": "text",
+                            "label": "Unit",
+                            "type": "string",
+                            "name": "unit"
+                          }
+                        ],
+                        "label": "Space below",
+                        "type": "object",
+                        "name": "spaceBelow"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "properties": [],
+                            "label": "Color",
+                            "type": "object",
+                            "name": "color"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Width",
+                            "type": "object",
+                            "name": "width"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Padding",
+                            "type": "object",
+                            "name": "padding"
+                          },
+                          {
+                            "control_type": "text",
+                            "label": "Dash style",
+                            "type": "string",
+                            "name": "dashStyle"
+                          }
+                        ],
+                        "label": "Border between",
+                        "type": "object",
+                        "name": "borderBetween"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "properties": [],
+                            "label": "Color",
+                            "type": "object",
+                            "name": "color"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Width",
+                            "type": "object",
+                            "name": "width"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Padding",
+                            "type": "object",
+                            "name": "padding"
+                          },
+                          {
+                            "control_type": "text",
+                            "label": "Dash style",
+                            "type": "string",
+                            "name": "dashStyle"
+                          }
+                        ],
+                        "label": "Border top",
+                        "type": "object",
+                        "name": "borderTop"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "properties": [],
+                            "label": "Color",
+                            "type": "object",
+                            "name": "color"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Width",
+                            "type": "object",
+                            "name": "width"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Padding",
+                            "type": "object",
+                            "name": "padding"
+                          },
+                          {
+                            "control_type": "text",
+                            "label": "Dash style",
+                            "type": "string",
+                            "name": "dashStyle"
+                          }
+                        ],
+                        "label": "Border bottom",
+                        "type": "object",
+                        "name": "borderBottom"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "properties": [],
+                            "label": "Color",
+                            "type": "object",
+                            "name": "color"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Width",
+                            "type": "object",
+                            "name": "width"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Padding",
+                            "type": "object",
+                            "name": "padding"
+                          },
+                          {
+                            "control_type": "text",
+                            "label": "Dash style",
+                            "type": "string",
+                            "name": "dashStyle"
+                          }
+                        ],
+                        "label": "Border left",
+                        "type": "object",
+                        "name": "borderLeft"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "properties": [],
+                            "label": "Color",
+                            "type": "object",
+                            "name": "color"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Width",
+                            "type": "object",
+                            "name": "width"
+                          },
+                          {
+                            "properties": [
+                              {
+                                "control_type": "text",
+                                "label": "Unit",
+                                "type": "string",
+                                "name": "unit"
+                              }
+                            ],
+                            "label": "Padding",
+                            "type": "object",
+                            "name": "padding"
+                          },
+                          {
+                            "control_type": "text",
+                            "label": "Dash style",
+                            "type": "string",
+                            "name": "dashStyle"
+                          }
+                        ],
+                        "label": "Border right",
+                        "type": "object",
+                        "name": "borderRight"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "control_type": "text",
+                            "label": "Unit",
+                            "type": "string",
+                            "name": "unit"
+                          }
+                        ],
+                        "label": "Indent first line",
+                        "type": "object",
+                        "name": "indentFirstLine"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "control_type": "text",
+                            "label": "Unit",
+                            "type": "string",
+                            "name": "unit"
+                          }
+                        ],
+                        "label": "Indent start",
+                        "type": "object",
+                        "name": "indentStart"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "control_type": "text",
+                            "label": "Unit",
+                            "type": "string",
+                            "name": "unit"
+                          }
+                        ],
+                        "label": "Indent end",
+                        "type": "object",
+                        "name": "indentEnd"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Keep lines together",
+                        "render_input": {},
+                        "parse_output": {},
+                        "toggle_hint": "Select from option list",
+                        "toggle_field": {
+                          "label": "Keep lines together",
+                          "control_type": "text",
+                          "toggle_hint": "Use custom value",
+                          "type": "boolean",
+                          "name": "keepLinesTogether"
+                        },
+                        "type": "boolean",
+                        "name": "keepLinesTogether"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Keep with next",
+                        "render_input": {},
+                        "parse_output": {},
+                        "toggle_hint": "Select from option list",
+                        "toggle_field": {
+                          "label": "Keep with next",
+                          "control_type": "text",
+                          "toggle_hint": "Use custom value",
+                          "type": "boolean",
+                          "name": "keepWithNext"
+                        },
+                        "type": "boolean",
+                        "name": "keepWithNext"
+                      },
+                      {
+                        "control_type": "text",
+                        "label": "Avoid widow and orphan",
+                        "render_input": {},
+                        "parse_output": {},
+                        "toggle_hint": "Select from option list",
+                        "toggle_field": {
+                          "label": "Avoid widow and orphan",
+                          "control_type": "text",
+                          "toggle_hint": "Use custom value",
+                          "type": "boolean",
+                          "name": "avoidWidowAndOrphan"
+                        },
+                        "type": "boolean",
+                        "name": "avoidWidowAndOrphan"
+                      },
+                      {
+                        "properties": [
+                          {
+                            "properties": [],
+                            "label": "Background color",
+                            "type": "object",
+                            "name": "backgroundColor"
+                          }
+                        ],
+                        "label": "Shading",
+                        "type": "object",
+                        "name": "shading"
+                      }
+                    ],
+                    "label": "Paragraph style",
+                    "type": "object",
+                    "name": "paragraphStyle"
+                  }
+                ]
+              }
+            ],
+            "label": "Named styles",
+            "type": "object",
+            "name": "namedStyles"
+          },
+          {
+            "control_type": "text",
+            "label": "Revision ID",
+            "type": "string",
+            "name": "revisionId"
+          },
+          {
+            "control_type": "text",
+            "label": "Suggestions view mode",
+            "type": "string",
+            "name": "suggestionsViewMode"
+          },
+          {
+            "control_type": "text",
+            "label": "Document ID",
+            "type": "string",
+            "name": "documentId"
+          }
+        ]
       end
     },
     update_response: {
       fields: lambda do
-				[
-				  {
-				    "name": "replies",
-				    "type": "array",
-				    "of": "object",
-				    "label": "Replies",
-				    "properties": [
-				      {
-				        "properties": [
-				          {
-				            "control_type": "number",
-				            "label": "Occurrences changed",
-				            "parse_output": "float_conversion",
-				            "type": "number",
-				            "name": "occurrencesChanged"
-				          }
-				        ],
-				        "label": "Replace all text",
-				        "type": "object",
-				        "name": "replaceAllText"
-				      }
-				    ]
-				  },
-				  {
-				    "properties": [
-				      {
-				        "control_type": "text",
-				        "label": "Required revision ID",
-				        "type": "string",
-				        "name": "requiredRevisionId"
-				      }
-				    ],
-				    "label": "Write control",
-				    "type": "object",
-				    "name": "writeControl"
-				  },
-				  {
-				    "name": "documentId"
-				  },
+        [
+          {
+            "properties": [
+              {
+                "control_type": "text",
+                "label": "Required revision ID",
+                "type": "string",
+                "name": "requiredRevisionId"
+              }
+            ],
+            "label": "Write control",
+            "type": "object",
+            "name": "writeControl"
+          },
+          {
+            "name": "documentId"
+          },
           {
             name: "doc_url"
           }
-				]
+        ]
       end
     }
   }
